@@ -1,31 +1,38 @@
 import OpenAI from "openai";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 
 export async function POST(req) {
   try {
 
-    const ip = req.headers.get("x-forwarded-for") || "unknown";
+    const data = await req.formData();
+    const file = data.get("file");
+    const uid = data.get("uid");
+
+    if (!uid) {
+      return Response.json({ error: "User not authenticated" }, { status: 401 });
+    }
 
     const today = new Date().toISOString().slice(0, 10);
 
-    const usageRef = doc(db, "usage", ip);
+    const usageRef = doc(db, "usage", uid);
     const usageSnap = await getDoc(usageRef);
 
     if (usageSnap.exists()) {
 
-      const data = usageSnap.data();
+      const usage = usageSnap.data();
 
-      if (data.date === today && data.count >= 20) {
+      if (usage.date === today && usage.count >= 20) {
         return Response.json(
           { error: "Daily limit reached (20 questions/day)" },
           { status: 429 }
         );
       }
 
-      if (data.date === today) {
+      if (usage.date === today) {
         await updateDoc(usageRef, {
-          count: data.count + 1
+          count: usage.count + 1
         });
       } else {
         await setDoc(usageRef, {
@@ -43,14 +50,11 @@ export async function POST(req) {
 
     }
 
-    const data = await req.formData();
-    const file = data.get("file");
-
     if (!file) {
       return Response.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    // IMAGE SIZE LIMIT (5MB)
+    // IMAGE SIZE LIMIT
     if (file.size > 5 * 1024 * 1024) {
       return Response.json({ error: "Image too large" }, { status: 400 });
     }
