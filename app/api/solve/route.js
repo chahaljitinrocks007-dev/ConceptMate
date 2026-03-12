@@ -1,9 +1,47 @@
 import OpenAI from "openai";
 
+const requests = new Map();
+
+function rateLimit(ip) {
+  const now = Date.now();
+  const window = 60000; // 1 minute
+  const limit = 5;
+
+  if (!requests.has(ip)) {
+    requests.set(ip, []);
+  }
+
+  const timestamps = requests.get(ip).filter(t => now - t < window);
+
+  if (timestamps.length >= limit) {
+    return false;
+  }
+
+  timestamps.push(now);
+  requests.set(ip, timestamps);
+  return true;
+}
+
 export async function POST(req) {
   try {
+
+    const ip = req.headers.get("x-forwarded-for") || "unknown";
+
+    if (!rateLimit(ip)) {
+      return Response.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const data = await req.formData();
     const file = data.get("file");
+
+    if (!file) {
+      return Response.json({ error: "No file uploaded" }, { status: 400 });
+    }
+
+    // image size limit (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      return Response.json({ error: "Image too large" }, { status: 400 });
+    }
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -53,6 +91,7 @@ Rules:
     return Response.json({
       result: response.output_text,
     });
+
   } catch (error) {
     console.log(error);
     return Response.json({ error: "Failed to solve" }, { status: 500 });
