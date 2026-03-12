@@ -1,34 +1,46 @@
 import OpenAI from "openai";
-
-const requests = new Map();
-
-function rateLimit(ip) {
-  const now = Date.now();
-  const window = 60000; // 1 minute
-  const limit = 5;
-
-  if (!requests.has(ip)) {
-    requests.set(ip, []);
-  }
-
-  const timestamps = requests.get(ip).filter(t => now - t < window);
-
-  if (timestamps.length >= limit) {
-    return false;
-  }
-
-  timestamps.push(now);
-  requests.set(ip, timestamps);
-  return true;
-}
+import { db } from "@/lib/firebase";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 
 export async function POST(req) {
   try {
 
     const ip = req.headers.get("x-forwarded-for") || "unknown";
 
-    if (!rateLimit(ip)) {
-      return Response.json({ error: "Too many requests" }, { status: 429 });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const usageRef = doc(db, "usage", ip);
+    const usageSnap = await getDoc(usageRef);
+
+    if (usageSnap.exists()) {
+
+      const data = usageSnap.data();
+
+      if (data.date === today && data.count >= 20) {
+        return Response.json(
+          { error: "Daily limit reached (20 questions/day)" },
+          { status: 429 }
+        );
+      }
+
+      if (data.date === today) {
+        await updateDoc(usageRef, {
+          count: data.count + 1
+        });
+      } else {
+        await setDoc(usageRef, {
+          count: 1,
+          date: today
+        });
+      }
+
+    } else {
+
+      await setDoc(usageRef, {
+        count: 1,
+        date: today
+      });
+
     }
 
     const data = await req.formData();
@@ -38,7 +50,7 @@ export async function POST(req) {
       return Response.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    // image size limit (5MB)
+    // IMAGE SIZE LIMIT (5MB)
     if (file.size > 5 * 1024 * 1024) {
       return Response.json({ error: "Image too large" }, { status: 400 });
     }
@@ -66,13 +78,6 @@ Your job:
 4) Solve step by step
 5) Explain like teaching a weak student
 6) At end give 1 learning tip
-
-Rules:
-- Very clear steps
-- No skipping steps
-- Simple language
-- If image tilted, mentally rotate
-- If multiple questions, solve all
           `,
         },
         {
@@ -93,7 +98,13 @@ Rules:
     });
 
   } catch (error) {
+
     console.log(error);
-    return Response.json({ error: "Failed to solve" }, { status: 500 });
+
+    return Response.json(
+      { error: "Failed to solve" },
+      { status: 500 }
+    );
+
   }
 }
