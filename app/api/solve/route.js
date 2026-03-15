@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import OpenAI from "openai";
 import { db } from "@/lib/firebase";
 import { doc,getDoc,setDoc,updateDoc,collection,addDoc } from "firebase/firestore";
