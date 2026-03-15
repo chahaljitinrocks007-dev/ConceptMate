@@ -1,55 +1,47 @@
 "use client";
+
 import { useState } from "react";
+import { auth } from "@/lib/firebase";
 
-export default function Solve() {
-  const [file, setFile] = useState(null);
-  const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(false);
+export default function Solve(){
 
-  async function handleUpload() {
-    if (!file) return alert("Upload image first");
+const [file,setFile]=useState(null);
+const [answer,setAnswer]=useState("");
 
-    setLoading(true);
-    setAnswer("");
+const solve=async()=>{
 
-    const formData = new FormData();
-    formData.append("file", file);
+const user=auth.currentUser;
 
-    const res = await fetch("/api/solve", {
-      method: "POST",
-      body: formData,
-    });
+const formData=new FormData();
 
-    const data = await res.json();
-    setAnswer(data.answer);
-    setLoading(false);
-  }
+formData.append("file",file);
+formData.append("uid",user.uid);
 
-  return (
-    <div style={{ padding: 40 }}>
-      <h1>Upload Question</h1>
+const res=await fetch("/api/solve",{
+method:"POST",
+body:formData
+});
 
-      <input
-        type="file"
-        accept="image/*"
-        onChange={(e) => setFile(e.target.files[0])}
-      />
+const data=await res.json();
 
-      <br /><br />
+setAnswer(data.result);
 
-      <button onClick={handleUpload}>
-        Solve Question
-      </button>
+}
 
-      <br /><br />
+return(
 
-      {loading && <p>Solving... 🤖</p>}
+<div style={{padding:"40px"}}>
 
-      {answer && (
-        <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 20 }}>
-          {answer}
-        </div>
-      )}
-    </div>
-  );
+<input type="file" onChange={(e)=>setFile(e.target.files[0])} />
+
+<button onClick={solve}>
+Solve
+</button>
+
+<p>{answer}</p>
+
+</div>
+
+)
+
 }

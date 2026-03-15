@@ -1,74 +1,100 @@
 "use client";
 
-import { auth, db } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { auth,db } from "@/lib/firebase";
+import { doc,getDoc,collection,getDocs } from "firebase/firestore";
+import { useEffect,useState } from "react";
+import jsPDF from "jspdf";
 
-export default function Dashboard() {
-  const [credits, setCredits] = useState(null);
-  const router = useRouter();
+export default function Dashboard(){
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+const [usage,setUsage]=useState(0);
+const [history,setHistory]=useState([]);
 
-      const docRef = doc(db, "users", user.uid);
-      const snap = await getDoc(docRef);
+useEffect(()=>{
 
-      if (snap.exists()) {
-        setCredits(snap.data().credits);
-      }
-    });
+const load=async()=>{
 
-    return () => unsub();
-  }, []);
+const user=auth.currentUser;
 
-  const addCredits = async () => {
-    const user = auth.currentUser;
-    const docRef = doc(db, "users", user.uid);
+if(!user) return;
 
-    const newCredits = credits + 10;
+const usageRef=doc(db,"usage",user.uid);
+const usageSnap=await getDoc(usageRef);
 
-    await updateDoc(docRef, {
-      credits: newCredits
-    });
+if(usageSnap.exists()) setUsage(usageSnap.data().count);
 
-    setCredits(newCredits);
-  };
+const ref=collection(db,"history",user.uid,"solves");
+const snap=await getDocs(ref);
 
-  if (credits === null) return <h1>Loading...</h1>;
+const items=[];
 
-  return (
-    <div style={{ padding: 40 }}>
-      <h1>Dashboard</h1>
-      <h2>Your Credits: {credits}</h2>
+snap.forEach(doc=>items.push(doc.data()));
 
-      <button
-        onClick={addCredits}
-        style={{
-          marginTop: 20,
-          padding: "12px 20px",
-          background: "green",
-          color: "white",
-          borderRadius: "10px"
-        }}
-      >
-        Add 10 Credits (Test)
-      </button>
+setHistory(items.reverse());
 
-      <br /><br />
+}
 
-      <a href="/solve">
-        <button style={{ padding: "12px 20px" }}>
-          Solve a Question
-        </button>
-      </a>
+load();
 
-    </div>
-  );
+},[])
+
+const downloadPDF=(item)=>{
+
+const pdf=new jsPDF();
+
+pdf.text("AI Solver",20,20);
+
+let y=40;
+
+item.steps.forEach((s,i)=>{
+
+pdf.text(`Step ${i+1}: ${s}`,20,y);
+y+=10;
+
+});
+
+pdf.text(`Answer: ${item.finalAnswer}`,20,y+10);
+
+pdf.save("solution.pdf");
+
+}
+
+return(
+
+<div style={{padding:"40px"}}>
+
+<h1>Dashboard</h1>
+
+<h3>Usage Today: {usage} / 20</h3>
+
+<h2>History</h2>
+
+{history.map((item,i)=>(
+
+<div key={i} style={{border:"1px solid #ddd",padding:"20px",marginTop:"20px"}}>
+
+<img src={item.image} width="100%" />
+
+<p>Difficulty: {item.difficulty}</p>
+
+{item.steps?.map((s,i)=>(
+
+<p key={i}>Step {i+1}: {s}</p>
+
+))}
+
+<p>Answer: {item.finalAnswer}</p>
+
+<button onClick={()=>downloadPDF(item)}>
+Download PDF
+</button>
+
+</div>
+
+))}
+
+</div>
+
+)
+
 }

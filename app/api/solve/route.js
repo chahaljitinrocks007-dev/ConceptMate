@@ -1,114 +1,132 @@
 import OpenAI from "openai";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import { auth } from "@/lib/firebase";
+import { doc,getDoc,setDoc,updateDoc,collection,addDoc } from "firebase/firestore";
 
-export async function POST(req) {
-  try {
+export async function POST(req){
 
-    const data = await req.formData();
-    const file = data.get("file");
-    const uid = data.get("uid");
+try{
 
-    if (!uid) {
-      return Response.json({ error: "User not authenticated" }, { status: 401 });
-    }
+const data=await req.formData();
 
-    const today = new Date().toISOString().slice(0, 10);
+const file=data.get("file");
+const uid=data.get("uid");
 
-    const usageRef = doc(db, "usage", uid);
-    const usageSnap = await getDoc(usageRef);
+if(!uid) return Response.json({error:"Not logged in"});
 
-    if (usageSnap.exists()) {
+const today=new Date().toISOString().slice(0,10);
 
-      const usage = usageSnap.data();
+const usageRef=doc(db,"usage",uid);
+const usageSnap=await getDoc(usageRef);
 
-      if (usage.date === today && usage.count >= 20) {
-        return Response.json(
-          { error: "Daily limit reached (20 questions/day)" },
-          { status: 429 }
-        );
-      }
+if(usageSnap.exists()){
 
-      if (usage.date === today) {
-        await updateDoc(usageRef, {
-          count: usage.count + 1
-        });
-      } else {
-        await setDoc(usageRef, {
-          count: 1,
-          date: today
-        });
-      }
+const usage=usageSnap.data();
 
-    } else {
+if(usage.date===today && usage.count>=20){
 
-      await setDoc(usageRef, {
-        count: 1,
-        date: today
-      });
+return Response.json({error:"Daily limit reached"},{status:429});
 
-    }
+}
 
-    if (!file) {
-      return Response.json({ error: "No file uploaded" }, { status: 400 });
-    }
+if(usage.date===today){
 
-    // IMAGE SIZE LIMIT
-    if (file.size > 5 * 1024 * 1024) {
-      return Response.json({ error: "Image too large" }, { status: 400 });
-    }
+await updateDoc(usageRef,{count:usage.count+1});
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64Image = buffer.toString("base64");
+}
 
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+else{
 
-    const response = await openai.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        {
-          role: "system",
-          content: `
-You are an expert math and physics teacher.
+await setDoc(usageRef,{count:1,date:today});
 
-Your job:
-1) Carefully read messy handwritten or printed questions from student notebook photos
-2) Ignore background noise, shadows, lines, fingers
-3) Detect the actual question
-4) Solve step by step
-5) Explain like teaching a weak student
-6) At end give 1 learning tip
-          `,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: "Read and solve this question from the photo" },
-            {
-              type: "input_image",
-              image_url: `data:image/jpeg;base64,${base64Image}`,
-            },
-          ],
-        },
-      ],
-    });
+}
 
-    return Response.json({
-      result: response.output_text,
-    });
+}
 
-  } catch (error) {
+else{
 
-    console.log(error);
+await setDoc(usageRef,{count:1,date:today});
 
-    return Response.json(
-      { error: "Failed to solve" },
-      { status: 500 }
-    );
+}
 
-  }
+const bytes=await file.arrayBuffer();
+const buffer=Buffer.from(bytes);
+const base64=buffer.toString("base64");
+
+const openai=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+
+const response=await openai.responses.create({
+
+model:"gpt-4.1-mini",
+
+input:[
+
+{
+role:"system",
+content:`
+Return solution JSON:
+
+{
+"difficulty":"",
+"steps":[],
+"finalAnswer":"",
+"tip":""
+}
+`
+},
+
+{
+role:"user",
+content:[
+{type:"input_text",text:"solve question"},
+{
+type:"input_image",
+image_url:`data:image/jpeg;base64,${base64}`
+}
+]
+}
+
+]
+
+});
+
+const ai=response.output_text;
+
+let parsed;
+
+try{
+
+parsed=JSON.parse(ai);
+
+}catch{
+
+parsed={
+difficulty:"unknown",
+steps:[ai],
+finalAnswer:"",
+tip:""
+}
+
+}
+
+await addDoc(collection(db,"history",uid,"solves"),{
+
+image:`data:image/jpeg;base64,${base64}`,
+steps:parsed.steps,
+finalAnswer:parsed.finalAnswer,
+difficulty:parsed.difficulty,
+tip:parsed.tip,
+createdAt:new Date()
+
+});
+
+return Response.json({result:ai});
+
+}
+
+catch(e){
+
+return Response.json({error:"solve failed"},{status:500});
+
+}
+
 }
